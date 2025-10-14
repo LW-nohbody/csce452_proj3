@@ -24,7 +24,7 @@ class Person():
         self.curr_pos = temp
         self.pos.append(temp)
 
-# Group the dynamic code sections into people and pick a point in there to create marker for (can use DBSCAN)
+# Creates markers for each group of points sent over the /moved_positions topic
 class Sim_Marker(Node):
     def __init__(self):
         super().__init__('marker')
@@ -37,7 +37,6 @@ class Sim_Marker(Node):
         self.curr_id = 0
     
     def publishMarkers(self):
-        # self.get_logger().info(f"Creating {len(self.marker_arr)} markers for {len(self.people)} people") #TODO: REMOVE
         markerList = MarkerArray()
         markerList.markers = self.marker_arr
         self.marker_pub.publish(markerList)
@@ -86,13 +85,8 @@ class Sim_Marker(Node):
                         self.curr_id += 1
                         assigned_groups.append(group)
 
-        # #TODO: Only make a marker for those groups that have existed for at least x frames
-        # temp_people = self.people[:]            
-        # for p in self.people:
-        #     if(len(p.pos) < 2):
-        #         temp_people.remove(p)
-            
-        #clear marker array and repopulate it, TODO: Should this only occur the second time the person is marked???
+
+        #clear marker array and repopulate it
         self.marker_arr = []
         for p in self.people:
             self.createMarker(p)

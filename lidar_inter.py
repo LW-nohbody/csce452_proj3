@@ -20,11 +20,13 @@ class Lidar_Inter(Node):
         self.lidar_ranges: list[list[float]] = []
         self.past_lidar_range: list[list[float]] = []
         self.twice_past_range: list[list[float]] = [] #DEBUG: REMOVE maybe
+
+        #NOTE: Old values, keeping for testing purposes
         # self.move_threshold = 0.05 #m
         # self.eps = 0.75
-        # self.points_for_group = 5 #TODO: fine tune, keep high to cut out noise, low enough so we get all people movement (has issue when far from lidar)
+        # self.points_for_group = 5 #T
         # self.group_threshold = 10 #Min size of group to count as a person
-        self.move_threshold = 0.05 #m
+        self.move_threshold = 0.05 #how much a point needs to move from previous position to be considered a change
         self.eps = 0.2
         self.points_for_group = 3 #TODO: fine tune, keep high to cut out noise, low enough so we get all people movement (has issue when far from lidar)
         self.group_threshold = 5 #Min size of group to count as a person
@@ -69,9 +71,9 @@ class Lidar_Inter(Node):
                 if(self.lidar_ranges[i] == None): continue
                 elif(self.past_lidar_range[i] == None):
                     continue
-                    dist = self.move_threshold + 1 #Movement detected, set distance above the threshold
-                    decrease_in_r = 0
-                elif(self.twice_past_range[i] == None): #DEBUG: REMOVE Maybe
+                    # dist = self.move_threshold + 1 #Movement detected, set distance above the threshold
+                    # decrease_in_r = 0
+                elif(self.twice_past_range[i] == None):
                     continue
                 else: 
                     dist = math.sqrt((self.lidar_ranges[i][1] - self.past_lidar_range[i][1])**2 + (self.lidar_ranges[i][0] - self.past_lidar_range[i][0])**2)
@@ -85,7 +87,7 @@ class Lidar_Inter(Node):
             self.get_logger().info(f"got diffs, {len(diff_points)}") #TODO: Remove
             for diff in diff_points:
                 self.get_logger().info(f"Difference: ({diff[0]}, {diff[1]})") #TODO:REMOVE
-            self.twice_past_range = self.past_lidar_range[:] #DEBUG: REMOVE maybe
+            self.twice_past_range = self.past_lidar_range[:] 
             self.past_lidar_range = self.lidar_ranges[:]
             
             
@@ -97,8 +99,7 @@ class Lidar_Inter(Node):
             grouped_points = self.groupPoints(point_arr)
             self.pointPub(grouped_points)
     
-
-    #TODO: May want to move this function to lidar_inter.py (fits better)
+    # Forms the points into groups based on proximity, uses the DBSCAN algorithm
     def groupPoints(self, points: list[Point]): 
         temp: list[Point] = points[:]
         temp_list = []
@@ -146,7 +147,6 @@ def main():
     rclpy.init()
 
     sensor = Lidar_Inter()
-
 
     rclpy.spin(sensor)
 
