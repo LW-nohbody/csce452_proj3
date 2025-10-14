@@ -35,6 +35,7 @@ class Sim_Marker(Node):
         self.point_arr: list[Point] = []
         self.people: list[Person] = []
         self.curr_id = 0
+        self.max_dist_for_person = 1.0 # max distance for a point to be considered apart of an existing person
     
     def publishMarkers(self):
         markerList = MarkerArray()
@@ -58,6 +59,7 @@ class Sim_Marker(Node):
                 self.curr_id += 1
         else:
             #Find the person closest to each group and assign it to them
+            #TODO: Take into account person's velocity when assigning groups (should only check previous 2-3 points for it)
             temp_people = self.people[:]
             assigned_groups: list[Point] = []
             for group in grouped_points:
@@ -65,10 +67,12 @@ class Sim_Marker(Node):
                 closest_dist = -1
                 self.get_logger().info(f"temp_people size: {len(temp_people)}, self.people size: {len(self.people)}") #TODO:REMOVE
                 for p in temp_people:
-                    if closest_dist == -1:
+                    dist_to_point = getDist(group, p.curr_pos)
+                    is_close_to_point = dist_to_point <= self.max_dist_for_person
+                    if closest_dist == -1 and is_close_to_point:
                         closest_p = p
                         closest_dist = getDist(group, p.curr_pos)
-                    elif (getDist(group, p.curr_pos) < closest_dist):
+                    elif (getDist(group, p.curr_pos) < closest_dist) and is_close_to_point:
                         closest_p = p 
                         closest_dist = getDist(group, p.curr_pos)
                 if(closest_p == None): continue
@@ -117,11 +121,20 @@ class Sim_Marker(Node):
         marker.scale.y = 0.01
         marker.scale.z = 0.0
 
+        id_mod_4 = person.id % 4
         marker.color.r = 0.0
-        marker.color.g = 1.0
+        marker.color.g = 0.0
         marker.color.b = 0.0
         marker.color.a = 1.0
-
+        if(id_mod_4 == 0):
+            marker.color.r = 1.0
+        elif(id_mod_4 == 1):
+            marker.color.g = 1.0
+        elif(id_mod_4 == 2):
+            marker.color.b = 1.0
+        elif(id_mod_4 == 3):
+            marker.color.g = 1.0
+            marker.color.b = 1.0
         marker.points = person.pos
 
         marker.lifetime.sec = 0
