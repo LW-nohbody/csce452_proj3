@@ -20,6 +20,7 @@ class Lidar_Inter(Node):
         self.lidar_ranges: list[list[float]] = []
         self.past_lidar_range: list[list[float]] = []
         self.twice_past_range: list[list[float]] = [] #DEBUG: REMOVE maybe
+        self.original_range: list[list[float]] = []
 
         #NOTE: Old values, keeping for testing purposes
         # self.move_threshold = 0.05 #m
@@ -27,7 +28,7 @@ class Lidar_Inter(Node):
         # self.points_for_group = 5 #T
         # self.group_threshold = 10 #Min size of group to count as a person
         self.move_threshold = 0.05 #how much a point needs to move from previous position to be considered a change
-        self.eps = 0.2
+        self.eps = 0.4
         self.points_for_group = 3 #TODO: fine tune, keep high to cut out noise, low enough so we get all people movement (has issue when far from lidar)
         self.group_threshold = 5 #Min size of group to count as a person
 
@@ -63,23 +64,36 @@ class Lidar_Inter(Node):
         if(self.twice_past_range == []):
             self.twice_past_range = self.past_lidar_range[:]
             self.past_lidar_range = self.lidar_ranges[:]
+            if(self.twice_past_range != []):
+                #Average the first two scans to get a stationary map scan
+                for i in range(len(self.past_lidar_range)):
+                    if(self.past_lidar_range[i] == None) or (self.twice_past_range[i] == None):
+                        self.original_range.append(None)
+                    else:
+                        self.original_range.append([(self.twice_past_range[i][0] + self.past_lidar_range[i][0] )/ 2, (self.twice_past_range[i][1] + self.past_lidar_range[i][1] )/ 2])
             return 
         else:
             diff_points: list[list [float]] = []
 
             for i in range(min(len(self.lidar_ranges), len(self.past_lidar_range))):
                 if(self.lidar_ranges[i] == None): continue
-                elif(self.past_lidar_range[i] == None):
+                elif(self.past_lidar_range[i] == None) and (self.twice_past_range[i] == None):
+                    # continue
+                    dist = self.move_threshold + 1 #Movement detected, set distance above the threshold
+                    decrease_in_r = 0
+                elif(self.past_lidar_range[i] == None) and (self.twice_past_range[i] != None):
                     continue
-                    # dist = self.move_threshold + 1 #Movement detected, set distance above the threshold
-                    # decrease_in_r = 0
                 elif(self.twice_past_range[i] == None):
                     continue
                 else: 
                     dist = math.sqrt((self.lidar_ranges[i][1] - self.past_lidar_range[i][1])**2 + (self.lidar_ranges[i][0] - self.past_lidar_range[i][0])**2)
                     dist_2 = math.sqrt((self.lidar_ranges[i][1] - self.twice_past_range[i][1])**2 + (self.lidar_ranges[i][0] - self.twice_past_range[i][0])**2) #DEBUG: remove maybe
-                    decrease_in_r = cartToPolar(self.past_lidar_range[i][0], self.past_lidar_range[i][1])[0] - cartToPolar(self.lidar_ranges[i][0], self.lidar_ranges[i][1])[0]
-                is_new_value = (abs(dist) > self.move_threshold) and (abs(dist_2 > self.move_threshold)) and (decrease_in_r >= 0) #Has point moved further than the threshold distance and is closer than the previous point on that line?
+                    # decrease_in_r = cartToPolar(self.past_lidar_range[i][0], self.past_lidar_range[i][1])[0] - cartToPolar(self.lidar_ranges[i][0], self.lidar_ranges[i][1])[0]
+                    if(self.original_range[i] == None):
+                        decrease_in_r = 0
+                    else:
+                        decrease_in_r = math.sqrt((self.lidar_ranges[i][0] - self.original_range[i][0])**2 + (self.lidar_ranges[i][1] - self.original_range[i][1])**2) - self.move_threshold
+                is_new_value = (abs(dist) > self.move_threshold) and (abs(dist_2) > self.move_threshold) and (decrease_in_r >= 0) #Has point moved further than the threshold distance and is closer than the previous point on that line?
                 if(is_new_value):
                     if(self.lidar_ranges[i] == None): self.get_logger().info("ERROR: Appending NONE value")
                     elif(self.lidar_ranges[i][0] == float('nan')): self.get_logger().info("ERROR: contains NONE value")
