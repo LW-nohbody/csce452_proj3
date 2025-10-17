@@ -22,11 +22,11 @@ def generate_launch_description():
             arguments=['-d', '/home/nohbody/.rviz2/project_3_config.rviz'],
         ),
         DeclareLaunchArgument(
-            'bag_path',
+            'bag_in',
             description='Path to the ros2 bag to play'
         ),
-        #TODO: add argument to direct the output for the bag recordings for later
+        #TODO: add argument to direct the output for the bag recordings for later and change argument names
         ExecuteProcess(
-            cmd=['ros2', 'bag', 'play', LaunchConfiguration('bag_path')]
+            cmd=['ros2', 'bag', 'play', LaunchConfiguration('bag_in')]
         )
     ])
