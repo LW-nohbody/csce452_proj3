@@ -57,7 +57,6 @@ class Person():
             vel_theta = vel_theta-math.pi
         elif (vel_x < 0) and (vel_y >= 0):
             vel_theta = vel_theta + math.pi
-        # vel_theta = vel_theta % (math.pi*2) #NOTE: Should be redundant, but just in case theta ends up over 2*pi
 
         return (vel_r, vel_theta)
     
@@ -71,11 +70,12 @@ class Sim_Marker(Node):
         self.marker_arr = []
         self.point_arr: list[Point] = []
         self.people: list[Person] = []
+        self.still_people_count: dict[Person:int] = {}
+        self.stationary_threshold = 10
         self.curr_id = 0
-        self.max_dist_for_person = 0.3 # max distance for a point to be considered apart of an existing person
+        self.max_dist_for_person = 0.9 # max distance for a point to be considered apart of an existing person
 
         #TODO: find max_angle_diff to use that limits the choices for a point without splitting a person
-        
         self.max_angle_diff = math.pi*2 # max angle a point can change from a person's previous path
         self.movement_threshold = 0.03
     
@@ -127,9 +127,20 @@ class Sim_Marker(Node):
             #     assigned_groups.append(group)
             temp_points = grouped_points[:]
             assigned_groups: list[Point] = []
-            for p in self.people:
+            temp_people = self.people[:]
+            for p in temp_people:
                 p_vel = p.getVel()
                 if(p_vel[0] <= self.movement_threshold): #TODO: May want to add a threshold value
+                    if(self.still_people_count.get(p) == None):
+                        self.still_people_count.update({p:1})
+                    else:
+                        self.still_people_count[p] = self.still_people_count[p]+1
+                    
+                    if(self.still_people_count.get(p) >= self.stationary_threshold):
+                        self.people.remove(p)
+                        self.get_logger().info(f"Removing person: {p.id} with stationary count: {self.still_people_count.get(p)}")
+                        continue
+                    
                     closest_point = None 
                     closest_dist = 0.0
                     for point in temp_points:
@@ -139,14 +150,17 @@ class Sim_Marker(Node):
                             closest_point = point
                     if(closest_point == None):
                         p.updatePos(p.curr_pos) #No movement detected
-                        self.get_logger().info(f"Person {p.id} remains still at ({p.curr_pos.x}, {p.curr_pos.y}) with past_velocity {p_vel[0]}") #TODO:REMOVE
+                        # self.get_logger().info(f"Person {p.id} remains still at ({p.curr_pos.x}, {p.curr_pos.y}) with past_velocity {p_vel[0]}") #TODO:REMOVE
                     else:
-                        self.get_logger().info(f"Person {p.id} remains somewhat stationary/has no velocity at point ({closest_point.x}, {closest_point.y}) with past velocity {p_vel}") #TODO:REMOVE
+                        # self.get_logger().info(f"Person {p.id} remains somewhat stationary/has no velocity at point ({closest_point.x}, {closest_point.y}) with past velocity {p_vel}") #TODO:REMOVE
                         p.updatePos(closest_point)
                         temp_points.remove(closest_point)
                         assigned_groups.append(closest_point)
                         continue
                 else:
+                    if(self.still_people_count.get(p) != None):
+                        self.still_people_count[p] = 0
+                    
                     closest_point = None 
                     closest_angle = 0.0
                     for point in temp_points:
@@ -171,7 +185,7 @@ class Sim_Marker(Node):
                         
                         angle_diff = new_theta - p_vel_angle
 
-                        self.get_logger().info(f"person: {p.id}, curr point: ({p.curr_pos.x}, {p.curr_pos.y}), considered point: ({point.x}, {point.y}) dist: {dist}, angle_diff: {angle_diff}, new theta: {new_theta}, old theta: {p_vel_angle}")
+                        # self.get_logger().info(f"person: {p.id}, curr point: ({p.curr_pos.x}, {p.curr_pos.y}), considered point: ({point.x}, {point.y}) dist: {dist}, angle_diff: {angle_diff}, new theta: {new_theta}, old theta: {p_vel_angle}")
 
                         if(dist <= self.max_dist_for_person) and (abs(angle_diff) <= self.max_angle_diff) and ((closest_point == None) or (abs(angle_diff) <= closest_angle)):#(dist < closest_dist)): #TODO: Maybe remove closest dist requirement??
                             closest_point = point 

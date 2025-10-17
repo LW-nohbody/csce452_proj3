@@ -79,20 +79,22 @@ class Lidar_Inter(Node):
 
             for i in range(min(len(self.lidar_ranges), len(self.past_lidar_range))):
                 if(self.lidar_ranges[i] == None): continue
-                elif(self.past_lidar_range[i] == None) and (self.twice_past_range[i] == None):
-                    dist = self.move_threshold + 1 #Movement detected, set distance above the threshold
+                elif(self.past_lidar_range[i] != None) and (self.twice_past_range[i] == None):
+                    dist =  math.sqrt((self.lidar_ranges[i][1] - self.past_lidar_range[i][1])**2 + (self.lidar_ranges[i][0] - self.past_lidar_range[i][0])**2)
                     dist_2 = self.move_threshold + 1
-                elif(self.past_lidar_range[i] == None) and (self.twice_past_range[i] != None):
+                elif(self.past_lidar_range[i] == None) and (self.twice_past_range[i] == None):
                     continue
-                elif(self.twice_past_range[i] == None): #Catches some flickers
+                elif(self.past_lidar_range[i] == None):
                     continue
                 else: 
                     dist = math.sqrt((self.lidar_ranges[i][1] - self.past_lidar_range[i][1])**2 + (self.lidar_ranges[i][0] - self.past_lidar_range[i][0])**2)
                     dist_2 = math.sqrt((self.lidar_ranges[i][1] - self.twice_past_range[i][1])**2 + (self.lidar_ranges[i][0] - self.twice_past_range[i][0])**2) #DEBUG: remove maybe
+                
                 if(self.original_range[i] == None):
                     change_from_orig = self.move_threshold+1
                 else:
                     change_from_orig = math.sqrt((self.lidar_ranges[i][0] - self.original_range[i][0])**2 + (self.lidar_ranges[i][1] - self.original_range[i][1])**2) - self.move_threshold
+                
                 is_new_value = (abs(dist) > self.move_threshold) and (abs(dist_2) > self.move_threshold) and (change_from_orig >= self.move_threshold) #Has point moved further than the threshold distance and is closer than the previous point on that line?
                 if(is_new_value):
                     if(self.lidar_ranges[i] == None): self.get_logger().info("ERROR: Appending NONE value")
