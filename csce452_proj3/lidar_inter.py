@@ -115,9 +115,8 @@ class Lidar_Inter(Node):
     
     # Forms the points into groups based on proximity, uses the DBSCAN algorithm
     def groupPoints(self, points: list[Point]): 
-        temp: list[Point] = points[:]
         temp_list = []
-        for i in temp:
+        for i in points:
             temp_list.append([i.x, i.y])
         if(temp_list == []):
             return []
@@ -127,14 +126,37 @@ class Lidar_Inter(Node):
         #NOTE: fitted_list.labels_ will give me a list with the associated labels for each point
         
         seen_groups = {}
+        group_sums = {}
         group_points: list[Point] = []
-        for i in range(len(temp)):
+        labels, count = np.unique(fitted_list.labels_, return_counts=True)
+        label_count = dict(zip(labels, count))
+
+        for i in range(len(points)):
             label = fitted_list.labels_[i]
             num_occurences = np.sum(fitted_list.labels_ == label)
+
             if(label == -1): continue #noise
-            if (seen_groups.get(label) == None) and (num_occurences > self.group_threshold): #First time seeing this group and group is of large enough size
+            elif (seen_groups.get(label) == None) and (num_occurences > self.group_threshold): #First time seeing this group and group is of large enough size
                 seen_groups.update({label: True})
-                group_points.append(temp[i])
+                # group_points.append(points[i])
+                temp_point = Point(x=points[i].x, y=points[i].y)
+                group_sums.update({label: temp_point})
+            elif(seen_groups.get(label) == True):
+                prev_point = group_sums.get(label)
+                
+                temp_point = Point(x=(points[i].x + prev_point.x), y=(points[i].y + prev_point.y))
+                group_sums[label] = temp_point
+        
+        for label in group_sums:
+            prev_point = group_sums.get(label)
+            occurences:int = label_count.get(label)
+            temp_point = Point(x=(prev_point.x/occurences), y=(prev_point.y/occurences))
+            group_sums[label] = temp_point
+            group_points.append(temp_point)
+            
+            
+
+
         
         self.get_logger().info(f"num groups: {len(group_points)}")
         for point in group_points:
