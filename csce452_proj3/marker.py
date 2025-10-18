@@ -71,9 +71,9 @@ class Sim_Marker(Node):
         self.point_arr: list[Point] = []
         self.people: list[Person] = []
         self.still_people_count: dict[Person:int] = {}
-        self.stationary_threshold = 10
+        self.stationary_threshold = 15
         self.curr_id = 0
-        self.max_dist_for_person = 0.9 # max distance for a point to be considered apart of an existing person
+        self.max_dist_for_person = 1.9 # max distance for a point to be considered apart of an existing person
 
         #TODO: find max_angle_diff to use that limits the choices for a point without splitting a person
         self.max_angle_diff = math.pi*2 # max angle a point can change from a person's previous path
@@ -161,6 +161,8 @@ class Sim_Marker(Node):
                     if(self.still_people_count.get(p) != None):
                         self.still_people_count[p] = 0
                     
+                    #TODO: Need to extremely relax the max_distance constraint
+
                     closest_point = None 
                     closest_angle = 0.0
                     for point in temp_points:

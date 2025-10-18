@@ -74,9 +74,7 @@ class Lidar_Inter(Node):
             return 
         else:
             diff_points: list[list [float]] = []
-
-            #TODO: Some noise points are showing up in differences
-
+            
             for i in range(min(len(self.lidar_ranges), len(self.past_lidar_range))):
                 if(self.lidar_ranges[i] == None): continue
                 elif(self.past_lidar_range[i] != None) and (self.twice_past_range[i] == None):
