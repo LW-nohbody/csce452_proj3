@@ -129,11 +129,10 @@ class Sim_Marker(Node):
             #     self.get_logger().info(f"Updating person {p.id} with point: ({group.x}, {group.y}), for {len(p.pos)} point total") #TODO: REMOVE
             #     assigned_groups.append(group)
             # --- minimal, points-first association ---
-            temp_people = self.people[:]          # existing tracks
-            assigned_groups: list[Point] = []     # points already assigned
+            temp_people = self.people[:]
+            assigned_groups: list[Point] = []
 
             for point in grouped_points:
-                # find the nearest existing person within max distance
                 best_p = None
                 best_d = float('inf')
                 for p in temp_people:
@@ -142,7 +141,6 @@ class Sim_Marker(Node):
                     speed, _ = p.getVel()
                     dynamic_gate = self.max_dist_for_person + min(1.0, 0.8 * speed)  # tweak 0.8/1.0 if needed
 
-                    # only consider candidates inside their gate; then pick nearest
                     if d <= dynamic_gate and d < best_d:
                         best_d = d
                         best_p = p
@@ -151,11 +149,9 @@ class Sim_Marker(Node):
                     best_p.updatePos(point)
                     assigned_groups.append(point)
                 else:
-                    # no nearby person → create a new one
                     self.people.append(Person(self.curr_id, point))
                     self.curr_id += 1
                     assigned_groups.append(point)
-            # --- end minimal association ---
             updated_ids = {p.id for p in self.people if p.curr_pos in assigned_groups}
             valid_ids = {p.id for p in self.people}
             self.missed_counts = {pid: c for pid, c in self.missed_counts.items() if pid in valid_ids}
