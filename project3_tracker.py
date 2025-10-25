@@ -25,11 +25,16 @@ def generate_launch_description():
         'bag_in',
         description='Path to the ros2 bag to play'
     )
+    arg2 = DeclareLaunchArgument(
+        'bag_out',
+        description="Folder to store the new bag recording in"
+    )
     playback = ExecuteProcess(
         cmd=['ros2', 'bag', 'play', LaunchConfiguration('bag_in')]
     )
-
-    #TODO: Add arguments and command to record a bag
+    recording = ExecuteProcess(
+        cmd=['ros2', 'bag', 'record', '-a', '-o', LaunchConfiguration('bag_out')]
+    )
 
     shutdown_on_exit = RegisterEventHandler(
         OnProcessExit(
@@ -43,6 +48,8 @@ def generate_launch_description():
         node2,
         rviz,
         arg1,
+        arg2,
+        recording,
         playback,
         shutdown_on_exit
     ])
