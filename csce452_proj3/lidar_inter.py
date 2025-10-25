@@ -7,6 +7,7 @@ from geometry_msgs.msg import Point
 import numpy as np
 import math
 from sklearn.cluster import DBSCAN
+from sklearn.neighbors import NearestNeighbors
 
 
 #TODO: Determine the sections from the LIDAR that are dynamic
@@ -28,9 +29,9 @@ class Lidar_Inter(Node):
         # self.points_for_group = 5 #T
         # self.group_threshold = 10 #Min size of group to count as a person
         self.move_threshold = 0.05 #how much a point needs to move from previous position to be considered a change
-        self.eps = 0.4
-        self.points_for_group = 3 #TODO: fine tune, keep high to cut out noise, low enough so we get all people movement (has issue when far from lidar)
-        self.group_threshold = 5 #Min size of group to count as a person
+        self.eps = 0.3
+        self.points_for_group = 4 #TODO: fine tune, keep high to cut out noise, low enough so we get all people movement (has issue when far from lidar)
+        self.group_threshold = 4 #Min size of group to count as a person
 
     
     def pointPub(self, point_to_pub:list[Point]):
@@ -74,7 +75,9 @@ class Lidar_Inter(Node):
             return 
         else:
             diff_points: list[list [float]] = []
-            
+
+            #TODO: Some noise points are showing up in differences
+
             for i in range(min(len(self.lidar_ranges), len(self.past_lidar_range))):
                 if(self.lidar_ranges[i] == None): continue
                 elif(self.past_lidar_range[i] != None) and (self.twice_past_range[i] == None):
@@ -94,6 +97,8 @@ class Lidar_Inter(Node):
                     change_from_orig = math.sqrt((self.lidar_ranges[i][0] - self.original_range[i][0])**2 + (self.lidar_ranges[i][1] - self.original_range[i][1])**2) - self.move_threshold
                 
                 is_new_value = (abs(dist) > self.move_threshold) and (abs(dist_2) > self.move_threshold) and (change_from_orig >= self.move_threshold) #Has point moved further than the threshold distance and is closer than the previous point on that line?
+                if abs(dist) < 0.02 and abs(dist_2) < 0.02:
+                    continue
                 if(is_new_value):
                     if(self.lidar_ranges[i] == None): self.get_logger().info("ERROR: Appending NONE value")
                     elif(self.lidar_ranges[i][0] == float('nan')): self.get_logger().info("ERROR: contains NONE value")
@@ -136,7 +141,7 @@ class Lidar_Inter(Node):
             num_occurences = np.sum(fitted_list.labels_ == label)
 
             if(label == -1): continue #noise
-            elif (seen_groups.get(label) == None) and (num_occurences > self.group_threshold): #First time seeing this group and group is of large enough size
+            elif (seen_groups.get(label) == None) and (num_occurences >= max(2, self.group_threshold - 1)): #First time seeing this group and group is of large enough size
                 seen_groups.update({label: True})
                 # group_points.append(points[i])
                 temp_point = Point(x=points[i].x, y=points[i].y)
@@ -147,16 +152,37 @@ class Lidar_Inter(Node):
                 temp_point = Point(x=(points[i].x + prev_point.x), y=(points[i].y + prev_point.y))
                 group_sums[label] = temp_point
         
+        filtered_group_points = []
+
+        for label in np.unique(fitted_list.labels_):
+            if label == -1: continue
+            cluster_points = [points[i] for i in range(len(points)) if fitted_list.labels_[i] == label]
+            if len(cluster_points) < self.points_for_group: continue
+
+            cx = sum(p.x for p in cluster_points) / len(cluster_points)
+            cy = sum(p.y for p in cluster_points) / len(cluster_points)
+
+            dists = [math.hypot(p.x - cx, p.y - cy) for p in cluster_points]
+            median_d = np.median(dists)
+            dev = np.median([abs(d - median_d) for d in dists])
+            threshold = max(0.25, 2.5 * dev)
+            inliers = [p for p, d in zip(cluster_points, dists) if d < threshold]
+            if len(inliers) == 0:
+                continue
+            cx = sum(p.x for p in inliers) / len(inliers)
+            cy = sum(p.y for p in inliers) / len(inliers)
+            filtered_group_points.append(Point(x=cx, y=cy, z=0.0))
+
+        group_points = filtered_group_points
+
         for label in group_sums:
             prev_point = group_sums.get(label)
-            occurences:int = label_count.get(label)
-            temp_point = Point(x=(prev_point.x/occurences), y=(prev_point.y/occurences))
+            counts = label_count.get(label)
+            temp_point = Point(x=(prev_point.x/counts), y=(prev_point.y/counts))
             group_sums[label] = temp_point
             group_points.append(temp_point)
-            
-            
-
-
+        
+        self.last_groups = group_points[:]
         
         self.get_logger().info(f"num groups: {len(group_points)}")
         for point in group_points:

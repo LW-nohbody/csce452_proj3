@@ -17,6 +17,8 @@ class Person():
         self.updatePos(curr_pos)
     
     def updatePos(self, new_pos:Point): #Creates a copy of the point and appends that to the array
+        if math.hypot(self.curr_pos.x - new_pos.x, self.curr_pos.y - new_pos.y) < 1e-4:
+            return
         temp = Point()
         temp.x = new_pos.x 
         temp.y = new_pos.y 
@@ -27,14 +29,14 @@ class Person():
     def getVel(self):
         vel_r:float = 0.0
         vel_theta:float = 0.0
-        if(len(self.pos) >= 3):
+        if(len(self.pos) >= 5):
             vel_x = 0
             vel_y = 0
-            for i in range(1, 3):
+            for i in range(1, 5):
                 vel_x += (self.pos[len(self.pos)-i].x - self.pos[len(self.pos) - i - 1].x)
                 vel_y += (self.pos[len(self.pos)-i].y - self.pos[len(self.pos) - i - 1].y)
-            vel_x = vel_x / 2
-            vel_y = vel_y / 2
+            vel_x = vel_x / 4
+            vel_y = vel_y / 4
         elif(len(self.pos) >= 2):
             vel_x = self.pos[len(self.pos)-1].x - self.pos[len(self.pos)-2].x
             vel_y = self.pos[len(self.pos)-1].y - self.pos[len(self.pos)-2].y
@@ -60,20 +62,32 @@ class Person():
 
         return (vel_r, vel_theta)
     
+    def predictPos(self, dt: int = 1):
+        vel_r, vel_theta = self.getVel()
+        if vel_r == 0.0:
+            return self.curr_pos
+
+        predicted = Point()
+        predicted.x = self.curr_pos.x + vel_r * math.cos(vel_theta) * dt
+        predicted.y = self.curr_pos.y + vel_r * math.sin(vel_theta) * dt
+        predicted.z = 0.0
+        return predicted
+    
 # Creates markers for each group of points sent over the /moved_positions topic
 class Sim_Marker(Node):
     def __init__(self):
         super().__init__('marker')
         self.marker_pub = self.create_publisher(MarkerArray, '/sim_markers', 10)
         self.point_sub = self.create_subscription(PoseArray, '/moved_positions', self.translate, 10)
-        self.timer = self.create_timer(1.0, self.publishMarkers)
         self.marker_arr = []
         self.point_arr: list[Point] = []
         self.people: list[Person] = []
         self.still_people_count: dict[Person:int] = {}
-        self.stationary_threshold = 15
+        self.stationary_threshold = 10
         self.curr_id = 0
-        self.max_dist_for_person = 1.9 # max distance for a point to be considered apart of an existing person
+        self.max_dist_for_person = 0.9
+        self.missed_counts = {}
+        self.max_missed_frames = 10
 
         #TODO: find max_angle_diff to use that limits the choices for a point without splitting a person
         self.max_angle_diff = math.pi*2 # max angle a point can change from a person's previous path
@@ -125,88 +139,103 @@ class Sim_Marker(Node):
             #     p.updatePos(group)
             #     self.get_logger().info(f"Updating person {p.id} with point: ({group.x}, {group.y}), for {len(p.pos)} point total") #TODO: REMOVE
             #     assigned_groups.append(group)
-            temp_points = grouped_points[:]
-            assigned_groups: list[Point] = []
+            # --- minimal, points-first association ---
             temp_people = self.people[:]
-            for p in temp_people:
-                p_vel = p.getVel()
-                if(p_vel[0] <= self.movement_threshold): #TODO: May want to add a threshold value
-                    if(self.still_people_count.get(p) == None):
-                        self.still_people_count.update({p:1})
-                    else:
-                        self.still_people_count[p] = self.still_people_count[p]+1
-                    
-                    if(self.still_people_count.get(p) >= self.stationary_threshold):
-                        self.people.remove(p)
-                        self.get_logger().info(f"Removing person: {p.id} with stationary count: {self.still_people_count.get(p)}")
-                        continue
-                    
-                    closest_point = None 
-                    closest_dist = 0.0
-                    for point in temp_points:
-                        dist = getDist(p.curr_pos, point)
-                        if (dist < self.max_dist_for_person) and ((closest_point == None) or (dist < closest_dist)):
-                            closest_dist = dist
-                            closest_point = point
-                    if(closest_point == None):
-                        p.updatePos(p.curr_pos) #No movement detected
-                        # self.get_logger().info(f"Person {p.id} remains still at ({p.curr_pos.x}, {p.curr_pos.y}) with past_velocity {p_vel[0]}") #TODO:REMOVE
-                    else:
-                        # self.get_logger().info(f"Person {p.id} remains somewhat stationary/has no velocity at point ({closest_point.x}, {closest_point.y}) with past velocity {p_vel}") #TODO:REMOVE
-                        p.updatePos(closest_point)
-                        temp_points.remove(closest_point)
-                        assigned_groups.append(closest_point)
-                        continue
+            assigned_groups: list[Point] = []
+
+            for point in grouped_points:
+                best_p = None
+                best_d = float('inf')
+                for p in temp_people:
+                    pred = p.predictPos(dt=1)
+                    d = getDist(point, pred)
+
+                    speed, _ = p.getVel()
+                    dynamic_gate = self.max_dist_for_person + min(1.0, 0.8 * speed)
+
+                    if d <= dynamic_gate and d < best_d:
+                        best_d = d
+                        best_p = p
+
+                if best_p is not None:
+                    best_p.updatePos(point)
+                    assigned_groups.append(point)
                 else:
-                    if(self.still_people_count.get(p) != None):
-                        self.still_people_count[p] = 0
-                    
-                    #TODO: Need to extremely relax the max_distance constraint
-
-                    closest_point = None 
-                    closest_angle = 0.0
-                    for point in temp_points:
-                        dist = getDist(p.curr_pos, point)
-                        diff_x = point.x - p.curr_pos.x 
-                        diff_y = point.y - p.curr_pos.y
-                        p_vel_angle = p.getVel()[1]
-                        if(diff_x != 0):
-                            new_theta = math.atan(diff_y/diff_x)
+                    self.people.append(Person(self.curr_id, point))
+                    self.curr_id += 1
+                    assigned_groups.append(point)
+            merged = []
+            for i, p1 in enumerate(self.people):
+                for j, p2 in enumerate(self.people):
+                    if i >= j: 
+                        continue
+                    if getDist(p1.curr_pos, p2.curr_pos) < 0.4:
+                        if len(p1.pos) >= len(p2.pos):
+                            self.people.remove(p2)
                         else:
-                            new_theta = math.pi/2 * (diff_y/abs(diff_y))
-                        if(diff_x < 0) and (diff_y < 0): #Quadrant 3
-                            new_theta = new_theta - math.pi
-                        elif (diff_x < 0) and (diff_y > 0): #Quadrant 2
-                            new_theta = new_theta + math.pi
+                            self.people.remove(p1)
+                        break
 
-                        if (new_theta < (-math.pi/4)) and (p_vel_angle > (math.pi/4)):
-                            new_theta = new_theta + (math.pi*2)
-                        elif (new_theta > (math.pi/4)) and (p_vel_angle < (-math.pi/4)):
-                            p_vel_angle = p_vel_angle + (math.pi*2)
+
+            updated_ids = {p.id for p in self.people if p.curr_pos in assigned_groups}
+            valid_ids = {p.id for p in self.people}
+            self.missed_counts = {pid: c for pid, c in self.missed_counts.items() if pid in valid_ids}
+            #match points to people now, if any unmatched, then this person has "disappeared" so predict their path
+            unmatched_points = [pt for pt in grouped_points if pt not in assigned_groups]
+            for p in self.people[:]:
+                if len(p.pos) < 3:
+                    continue
+                if p.id not in updated_ids:
+                    reattached = False
+                    for pt in unmatched_points:
+                        d = getDist(pt, p.curr_pos)
+                        if d < self.max_dist_for_person * 1.1:
+                            vel_r, vel_theta = p.getVel()
+                            if vel_r == 0:
+                                angle_ok = True
+                            else:
+                                pred_dir = math.atan2(pt.y - p.curr_pos.y, pt.x - p.curr_pos.x)
+                                angle_diff = abs((vel_theta - pred_dir + math.pi) % (2 * math.pi) - math.pi)
+                                angle_ok = angle_diff < (math.pi / 6)
+
+                            if angle_ok:
+                                p.updatePos(pt)
+                                unmatched_points.remove(pt)
+                                reattached = True
+                                break
+
+
+                    if reattached:
+                        continue
                         
-                        
-                        angle_diff = new_theta - p_vel_angle
+                    #if reattached, then we can skip but if not then we must interpolate
 
-                        # self.get_logger().info(f"person: {p.id}, curr point: ({p.curr_pos.x}, {p.curr_pos.y}), considered point: ({point.x}, {point.y}) dist: {dist}, angle_diff: {angle_diff}, new theta: {new_theta}, old theta: {p_vel_angle}")
+                    self.missed_counts[p.id] = self.missed_counts.get(p.id, 0) + 1
 
-                        if(dist <= self.max_dist_for_person) and (abs(angle_diff) <= self.max_angle_diff) and ((closest_point == None) or (abs(angle_diff) <= closest_angle)):#(dist < closest_dist)): #TODO: Maybe remove closest dist requirement??
-                            closest_point = point 
-                            closest_angle = abs(angle_diff)
-                    if(closest_point == None):
-                        p.updatePos(p.curr_pos)
+                    if self.missed_counts[p.id] <= self.max_missed_frames:
+                        coeff = 0.8 ** self.missed_counts[p.id]
+                        vel_r, vel_theta = p.getVel()
+                        vel_r *= coeff
+
+                        pred = Point()
+                        pred.x = p.curr_pos.x + vel_r * math.cos(vel_theta)
+                        pred.y = p.curr_pos.y + vel_r * math.sin(vel_theta)
+                        pred.z = 0.0
+
+                        drift = getDist(pred, p.curr_pos)
+                        if drift < 0.5:
+                            p.updatePos(pred)
+                        else:
+                            self.get_logger().info(
+                                f"Interpolation doesn't make sense: too large of drift"
+                            )
+
                     else:
-                        p.updatePos(closest_point)
-                        temp_points.remove(closest_point)
-                        assigned_groups.append(closest_point)
-
-            
-            if(len(assigned_groups) < len(grouped_points)): #Handles new people
-                for group in grouped_points:
-                    if not (group in assigned_groups):
-                        self.get_logger().info(f"Creating new person with {self.curr_id} id for point ({group.x}, {group.y})") #TODO: REMOVE
-                        self.people.append(Person(self.curr_id, group))
-                        self.curr_id += 1
-                        assigned_groups.append(group)
+                        self.get_logger().info(f"Removing person {p.id} (missed {self.missed_counts[p.id]} frames)")
+                        self.people.remove(p)
+                        del self.missed_counts[p.id]
+                else:
+                    self.missed_counts[p.id] = 0
 
 
         #clear marker array and repopulate it
@@ -230,13 +259,13 @@ class Sim_Marker(Node):
 
         marker.pose.position.x = 0.0
         marker.pose.position.y = 0.0
-        marker.pose.position.z = 0.0
+        marker.pose.position.z = 0.01
         marker.pose.orientation.x = 0.0
         marker.pose.orientation.y = 0.0
         marker.pose.orientation.z = 0.0
         marker.pose.orientation.w = 1.0
 
-        marker.scale.x = 0.01
+        marker.scale.x = 0.03
         marker.scale.y = 0.01
         marker.scale.z = 0.0
 
@@ -257,12 +286,14 @@ class Sim_Marker(Node):
         marker.points = person.pos
 
         marker.lifetime.sec = 0
+        marker.lifetime.nanosec = 0
 
         self.marker_arr.append(marker)
 
 
 def getDist(point1:Point, point2:Point):
     return math.sqrt((point1.x - point2.x)**2 + (point1.y - point2.y)**2)
+
 
 def main():
     rclpy.init()
