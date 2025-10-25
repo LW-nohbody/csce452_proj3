@@ -29,14 +29,14 @@ class Person():
     def getVel(self):
         vel_r:float = 0.0
         vel_theta:float = 0.0
-        if(len(self.pos) >= 3):
+        if(len(self.pos) >= 5):
             vel_x = 0
             vel_y = 0
-            for i in range(1, 3):
+            for i in range(1, 5):
                 vel_x += (self.pos[len(self.pos)-i].x - self.pos[len(self.pos) - i - 1].x)
                 vel_y += (self.pos[len(self.pos)-i].y - self.pos[len(self.pos) - i - 1].y)
-            vel_x = vel_x / 2
-            vel_y = vel_y / 2
+            vel_x = vel_x / 4
+            vel_y = vel_y / 4
         elif(len(self.pos) >= 2):
             vel_x = self.pos[len(self.pos)-1].x - self.pos[len(self.pos)-2].x
             vel_y = self.pos[len(self.pos)-1].y - self.pos[len(self.pos)-2].y
@@ -61,6 +61,17 @@ class Person():
             vel_theta = vel_theta + math.pi
 
         return (vel_r, vel_theta)
+    
+    def predictPos(self, dt: int = 1):
+        vel_r, vel_theta = self.getVel()
+        if vel_r == 0.0:
+            return self.curr_pos
+
+        predicted = Point()
+        predicted.x = self.curr_pos.x + vel_r * math.cos(vel_theta) * dt
+        predicted.y = self.curr_pos.y + vel_r * math.sin(vel_theta) * dt
+        predicted.z = 0.0
+        return predicted
     
 # Creates markers for each group of points sent over the /moved_positions topic
 class Sim_Marker(Node):
@@ -136,10 +147,11 @@ class Sim_Marker(Node):
                 best_p = None
                 best_d = float('inf')
                 for p in temp_people:
-                    d = getDist(point, p.curr_pos)
+                    pred = p.predictPos(dt=1)
+                    d = getDist(point, pred)
 
                     speed, _ = p.getVel()
-                    dynamic_gate = self.max_dist_for_person + min(1.0, 0.8 * speed)  # tweak 0.8/1.0 if needed
+                    dynamic_gate = self.max_dist_for_person + min(1.0, 0.8 * speed)
 
                     if d <= dynamic_gate and d < best_d:
                         best_d = d
@@ -152,15 +164,72 @@ class Sim_Marker(Node):
                     self.people.append(Person(self.curr_id, point))
                     self.curr_id += 1
                     assigned_groups.append(point)
+            merged = []
+            for i, p1 in enumerate(self.people):
+                for j, p2 in enumerate(self.people):
+                    if i >= j: 
+                        continue
+                    if getDist(p1.curr_pos, p2.curr_pos) < 0.4:
+                        if len(p1.pos) >= len(p2.pos):
+                            self.people.remove(p2)
+                        else:
+                            self.people.remove(p1)
+                        break
+
+
             updated_ids = {p.id for p in self.people if p.curr_pos in assigned_groups}
             valid_ids = {p.id for p in self.people}
             self.missed_counts = {pid: c for pid, c in self.missed_counts.items() if pid in valid_ids}
+            #match points to people now, if any unmatched, then this person has "disappeared" so predict their path
+            unmatched_points = [pt for pt in grouped_points if pt not in assigned_groups]
             for p in self.people[:]:
+                if len(p.pos) < 3:
+                    continue
                 if p.id not in updated_ids:
+                    reattached = False
+                    for pt in unmatched_points:
+                        d = getDist(pt, p.curr_pos)
+                        if d < self.max_dist_for_person * 1.1:
+                            vel_r, vel_theta = p.getVel()
+                            if vel_r == 0:
+                                angle_ok = True
+                            else:
+                                pred_dir = math.atan2(pt.y - p.curr_pos.y, pt.x - p.curr_pos.x)
+                                angle_diff = abs((vel_theta - pred_dir + math.pi) % (2 * math.pi) - math.pi)
+                                angle_ok = angle_diff < (math.pi / 6)
+
+                            if angle_ok:
+                                p.updatePos(pt)
+                                unmatched_points.remove(pt)
+                                reattached = True
+                                break
+
+
+                    if reattached:
+                        continue
+                        
+                    #if reattached, then we can skip but if not then we must interpolate
+
                     self.missed_counts[p.id] = self.missed_counts.get(p.id, 0) + 1
 
                     if self.missed_counts[p.id] <= self.max_missed_frames:
-                        p.updatePos(p.curr_pos)
+                        coeff = 0.8 ** self.missed_counts[p.id]
+                        vel_r, vel_theta = p.getVel()
+                        vel_r *= coeff
+
+                        pred = Point()
+                        pred.x = p.curr_pos.x + vel_r * math.cos(vel_theta)
+                        pred.y = p.curr_pos.y + vel_r * math.sin(vel_theta)
+                        pred.z = 0.0
+
+                        drift = getDist(pred, p.curr_pos)
+                        if drift < 0.5:
+                            p.updatePos(pred)
+                        else:
+                            self.get_logger().info(
+                                f"Interpolation doesn't make sense: too large of drift"
+                            )
+
                     else:
                         self.get_logger().info(f"Removing person {p.id} (missed {self.missed_counts[p.id]} frames)")
                         self.people.remove(p)
@@ -224,6 +293,7 @@ class Sim_Marker(Node):
 
 def getDist(point1:Point, point2:Point):
     return math.sqrt((point1.x - point2.x)**2 + (point1.y - point2.y)**2)
+
 
 def main():
     rclpy.init()
