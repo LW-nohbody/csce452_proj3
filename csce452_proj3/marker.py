@@ -114,17 +114,12 @@ class Sim_Marker(Node):
                 self.people.append(Person(self.curr_id, group))
                 self.curr_id += 1
         else:
-            #TODO: Find the point closest to each person biased by matched velocity
-                #NOTE: Find the closest velocity within a minimum distance??
-                #NOTE: Find all points in a range, choose one with closest velocity
             #Find the person closest to each group and assign it to them
-            #TODO: Take into account person's velocity when assigning groups (should only check previous 2-3 points for it)
             # temp_people = self.people[:]
             # assigned_groups: list[Point] = []
             # for group in grouped_points:
             #     closest_p = None
             #     closest_dist = -1
-            #     self.get_logger().info(f"temp_people size: {len(temp_people)}, self.people size: {len(self.people)}") #TODO:REMOVE
             #     for p in temp_people:
             #         dist_to_point = getDist(group, p.curr_pos)
             #         is_close_to_point = dist_to_point <= self.max_dist_for_person
@@ -137,7 +132,6 @@ class Sim_Marker(Node):
             #     if(closest_p == None): continue
             #     temp_people.remove(closest_p)
             #     p.updatePos(group)
-            #     self.get_logger().info(f"Updating person {p.id} with point: ({group.x}, {group.y}), for {len(p.pos)} point total") #TODO: REMOVE
             #     assigned_groups.append(group)
             # --- minimal, points-first association ---
             temp_people = self.people[:]
@@ -163,7 +157,8 @@ class Sim_Marker(Node):
                 else:
                     self.people.append(Person(self.curr_id, point))
                     self.curr_id += 1
-                    assigned_groups.append(point)
+                    # assigned_groups.append(point)
+            # Merge close people (if person within 0.4 of another remove one that has existed for less time)
             merged = []
             for i, p1 in enumerate(self.people):
                 for j, p2 in enumerate(self.people):
@@ -189,7 +184,7 @@ class Sim_Marker(Node):
                     reattached = False
                     for pt in unmatched_points:
                         d = getDist(pt, p.curr_pos)
-                        if d < self.max_dist_for_person * 1.1:
+                        if d < self.max_dist_for_person * 1.1: #If point within certain distance and in-line with prev velocity assign to person
                             vel_r, vel_theta = p.getVel()
                             if vel_r == 0:
                                 angle_ok = True
@@ -274,15 +269,18 @@ class Sim_Marker(Node):
         marker.color.g = 0.0
         marker.color.b = 0.0
         marker.color.a = 1.0
-        if(id_mod_4 == 0):
-            marker.color.r = 1.0
-        elif(id_mod_4 == 1):
-            marker.color.g = 1.0
-        elif(id_mod_4 == 2):
-            marker.color.b = 1.0
-        elif(id_mod_4 == 3):
-            marker.color.g = 1.0
-            marker.color.b = 1.0
+        marker.color.r = person.id%3 / 3
+        marker.color.g = person.id%5 / 5
+        marker.color.b = person.id%7 / 7
+        # if(id_mod_4 == 0):
+        #     marker.color.r = 1.0
+        # elif(id_mod_4 == 1):
+        #     marker.color.g = 1.0
+        # elif(id_mod_4 == 2):
+        #     marker.color.b = 1.0
+        # elif(id_mod_4 == 3):
+        #     marker.color.g = 1.0
+        #     marker.color.b = 1.0
         marker.points = person.pos
 
         marker.lifetime.sec = 0
@@ -299,29 +297,6 @@ def main():
     rclpy.init()
 
     mark = Sim_Marker()
-
-    # startPoint = Point()
-    # startPoint.x = 0.0
-    # startPoint.y = 0.0
-    # startPoint.z = 0.0
-    # test = Person(0, startPoint)
-
-
-    # testPoint = Point()
-    # testPoint.x = 2.49
-    # testPoint.y = -1.65
-    # #R = 2.987
-    # #theta = -0.58
-    # test.updatePos(testPoint)
-
-    # #R = 2.09 theta = -1.847
-    # testPoint.x = -0.57
-    # testPoint.y = -2.01
-
-    # test.updatePos(testPoint)    
-    
-
-    # mark.createMarker(test)
 
     rclpy.spin(mark)
 
