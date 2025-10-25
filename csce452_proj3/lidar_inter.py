@@ -46,7 +46,6 @@ class Lidar_Inter(Node):
     def getVals(self, msg):
         max_range = msg.range_max
         min_range = msg.range_min
-        max_angle = msg.angle_max #TODO: if no use, delete
         min_angle = msg.angle_min
         angle_step = msg.angle_increment
         self.lidar_ranges = []
@@ -59,17 +58,18 @@ class Lidar_Inter(Node):
             self.lidar_ranges.append(polarToCartesian(r, theta))
         
         #TODO: filter out the stationary points
-        # if(self.past_lidar_range == []):
-        #     self.past_lidar_range = self.lidar_ranges[:]
-        #     return 
         if(self.twice_past_range == []):
             self.twice_past_range = self.past_lidar_range[:]
             self.past_lidar_range = self.lidar_ranges[:]
             if(self.twice_past_range != []):
                 #Average the first two scans to get a stationary map scan
                 for i in range(len(self.past_lidar_range)):
-                    if(self.past_lidar_range[i] == None) or (self.twice_past_range[i] == None):
+                    if(self.past_lidar_range[i] == None) and (self.twice_past_range[i] == None):
                         self.original_range.append(None)
+                    elif(self.past_lidar_range[i] == None):
+                        self.original_range.append(self.twice_past_range[i])
+                    elif(self.twice_past_range[i] == None):
+                        self.original_range.append(self.past_lidar_range[i])
                     else:
                         self.original_range.append([(self.twice_past_range[i][0] + self.past_lidar_range[i][0] )/ 2, (self.twice_past_range[i][1] + self.past_lidar_range[i][1] )/ 2])
             return 
