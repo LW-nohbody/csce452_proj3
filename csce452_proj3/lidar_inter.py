@@ -28,7 +28,7 @@ class Lidar_Inter(Node):
         # self.points_for_group = 5 #T
         # self.group_threshold = 10 #Min size of group to count as a person
         self.move_threshold = 0.05 #how much a point needs to move from previous position to be considered a change
-        self.eps = 0.4
+        self.eps = 0.75
         self.points_for_group = 3 #TODO: fine tune, keep high to cut out noise, low enough so we get all people movement (has issue when far from lidar)
         self.group_threshold = 5 #Min size of group to count as a person
 
@@ -74,7 +74,9 @@ class Lidar_Inter(Node):
             return 
         else:
             diff_points: list[list [float]] = []
-            
+
+            #TODO: Some noise points are showing up in differences
+
             for i in range(min(len(self.lidar_ranges), len(self.past_lidar_range))):
                 if(self.lidar_ranges[i] == None): continue
                 elif(self.past_lidar_range[i] != None) and (self.twice_past_range[i] == None):
@@ -94,6 +96,8 @@ class Lidar_Inter(Node):
                     change_from_orig = math.sqrt((self.lidar_ranges[i][0] - self.original_range[i][0])**2 + (self.lidar_ranges[i][1] - self.original_range[i][1])**2) - self.move_threshold
                 
                 is_new_value = (abs(dist) > self.move_threshold) and (abs(dist_2) > self.move_threshold) and (change_from_orig >= self.move_threshold) #Has point moved further than the threshold distance and is closer than the previous point on that line?
+                if abs(dist) < 0.02 and abs(dist_2) < 0.02:
+                    continue
                 if(is_new_value):
                     if(self.lidar_ranges[i] == None): self.get_logger().info("ERROR: Appending NONE value")
                     elif(self.lidar_ranges[i][0] == float('nan')): self.get_logger().info("ERROR: contains NONE value")
@@ -136,7 +140,7 @@ class Lidar_Inter(Node):
             num_occurences = np.sum(fitted_list.labels_ == label)
 
             if(label == -1): continue #noise
-            elif (seen_groups.get(label) == None) and (num_occurences > self.group_threshold): #First time seeing this group and group is of large enough size
+            elif (seen_groups.get(label) == None) and (num_occurences >= max(3, self.group_threshold - 1)): #First time seeing this group and group is of large enough size
                 seen_groups.update({label: True})
                 # group_points.append(points[i])
                 temp_point = Point(x=points[i].x, y=points[i].y)
@@ -151,8 +155,25 @@ class Lidar_Inter(Node):
             prev_point = group_sums.get(label)
             occurences:int = label_count.get(label)
             temp_point = Point(x=(prev_point.x/occurences), y=(prev_point.y/occurences))
+            
+            if hasattr(self, "last_groups") and len(self.last_groups) > 0:
+                closest_previous = None
+                closest_distance = float('inf')
+                for past_point in self.last_groups:
+                    dist = math.sqrt((temp_point.x - past_point.x)**2 + (temp_point.y - past_point.y)**2)
+                    if dist < closest_distance:
+                        closest_distance = dist
+                        closest_previous = past_point
+                    if closest_previous and closest_distance < 1.0:
+                        coeff = 0.4
+                        temp_point.x = (1 - coeff) * temp_point.x + coeff * closest_previous.x
+                        temp_point.y = (1 - coeff) * temp_point.y + coeff * closest_previous.y
+
+
             group_sums[label] = temp_point
             group_points.append(temp_point)
+        
+        self.last_groups = group_points[:]
             
             
 
@@ -163,10 +184,6 @@ class Lidar_Inter(Node):
             self.get_logger().info(f"Point: ({point.x}, {point.y})") #TODO: REMOVE
         
         return group_points
-
-    
-
-
 
 def polarToCartesian(r: float, theta: float):
     x:float = r * math.cos(theta)

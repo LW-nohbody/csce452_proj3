@@ -17,6 +17,8 @@ class Person():
         self.updatePos(curr_pos)
     
     def updatePos(self, new_pos:Point): #Creates a copy of the point and appends that to the array
+        if math.hypot(self.curr_pos.x - new_pos.x, self.curr_pos.y - new_pos.y) < 1e-4:
+            return
         temp = Point()
         temp.x = new_pos.x 
         temp.y = new_pos.y 
@@ -66,14 +68,15 @@ class Sim_Marker(Node):
         super().__init__('marker')
         self.marker_pub = self.create_publisher(MarkerArray, '/sim_markers', 10)
         self.point_sub = self.create_subscription(PoseArray, '/moved_positions', self.translate, 10)
-        self.timer = self.create_timer(1.0, self.publishMarkers)
         self.marker_arr = []
         self.point_arr: list[Point] = []
         self.people: list[Person] = []
         self.still_people_count: dict[Person:int] = {}
-        self.stationary_threshold = 15
+        self.stationary_threshold = 10
         self.curr_id = 0
-        self.max_dist_for_person = 1.9 # max distance for a point to be considered apart of an existing person
+        self.max_dist_for_person = 0.9
+        self.missed_counts = {}
+        self.max_missed_frames = 10
 
         #TODO: find max_angle_diff to use that limits the choices for a point without splitting a person
         self.max_angle_diff = math.pi*2 # max angle a point can change from a person's previous path
@@ -125,88 +128,49 @@ class Sim_Marker(Node):
             #     p.updatePos(group)
             #     self.get_logger().info(f"Updating person {p.id} with point: ({group.x}, {group.y}), for {len(p.pos)} point total") #TODO: REMOVE
             #     assigned_groups.append(group)
-            temp_points = grouped_points[:]
-            assigned_groups: list[Point] = []
-            temp_people = self.people[:]
-            for p in temp_people:
-                p_vel = p.getVel()
-                if(p_vel[0] <= self.movement_threshold): #TODO: May want to add a threshold value
-                    if(self.still_people_count.get(p) == None):
-                        self.still_people_count.update({p:1})
-                    else:
-                        self.still_people_count[p] = self.still_people_count[p]+1
-                    
-                    if(self.still_people_count.get(p) >= self.stationary_threshold):
-                        self.people.remove(p)
-                        self.get_logger().info(f"Removing person: {p.id} with stationary count: {self.still_people_count.get(p)}")
-                        continue
-                    
-                    closest_point = None 
-                    closest_dist = 0.0
-                    for point in temp_points:
-                        dist = getDist(p.curr_pos, point)
-                        if (dist < self.max_dist_for_person) and ((closest_point == None) or (dist < closest_dist)):
-                            closest_dist = dist
-                            closest_point = point
-                    if(closest_point == None):
-                        p.updatePos(p.curr_pos) #No movement detected
-                        # self.get_logger().info(f"Person {p.id} remains still at ({p.curr_pos.x}, {p.curr_pos.y}) with past_velocity {p_vel[0]}") #TODO:REMOVE
-                    else:
-                        # self.get_logger().info(f"Person {p.id} remains somewhat stationary/has no velocity at point ({closest_point.x}, {closest_point.y}) with past velocity {p_vel}") #TODO:REMOVE
-                        p.updatePos(closest_point)
-                        temp_points.remove(closest_point)
-                        assigned_groups.append(closest_point)
-                        continue
+            # --- minimal, points-first association ---
+            temp_people = self.people[:]          # existing tracks
+            assigned_groups: list[Point] = []     # points already assigned
+
+            for point in grouped_points:
+                # find the nearest existing person within max distance
+                best_p = None
+                best_d = float('inf')
+                for p in temp_people:
+                    d = getDist(point, p.curr_pos)
+
+                    speed, _ = p.getVel()
+                    dynamic_gate = self.max_dist_for_person + min(1.0, 0.8 * speed)  # tweak 0.8/1.0 if needed
+
+                    # only consider candidates inside their gate; then pick nearest
+                    if d <= dynamic_gate and d < best_d:
+                        best_d = d
+                        best_p = p
+
+                if best_p is not None:
+                    best_p.updatePos(point)
+                    assigned_groups.append(point)
                 else:
-                    if(self.still_people_count.get(p) != None):
-                        self.still_people_count[p] = 0
-                    
-                    #TODO: Need to extremely relax the max_distance constraint
+                    # no nearby person → create a new one
+                    self.people.append(Person(self.curr_id, point))
+                    self.curr_id += 1
+                    assigned_groups.append(point)
+            # --- end minimal association ---
+            updated_ids = {p.id for p in self.people if p.curr_pos in assigned_groups}
+            valid_ids = {p.id for p in self.people}
+            self.missed_counts = {pid: c for pid, c in self.missed_counts.items() if pid in valid_ids}
+            for p in self.people[:]:
+                if p.id not in updated_ids:
+                    self.missed_counts[p.id] = self.missed_counts.get(p.id, 0) + 1
 
-                    closest_point = None 
-                    closest_angle = 0.0
-                    for point in temp_points:
-                        dist = getDist(p.curr_pos, point)
-                        diff_x = point.x - p.curr_pos.x 
-                        diff_y = point.y - p.curr_pos.y
-                        p_vel_angle = p.getVel()[1]
-                        if(diff_x != 0):
-                            new_theta = math.atan(diff_y/diff_x)
-                        else:
-                            new_theta = math.pi/2 * (diff_y/abs(diff_y))
-                        if(diff_x < 0) and (diff_y < 0): #Quadrant 3
-                            new_theta = new_theta - math.pi
-                        elif (diff_x < 0) and (diff_y > 0): #Quadrant 2
-                            new_theta = new_theta + math.pi
-
-                        if (new_theta < (-math.pi/4)) and (p_vel_angle > (math.pi/4)):
-                            new_theta = new_theta + (math.pi*2)
-                        elif (new_theta > (math.pi/4)) and (p_vel_angle < (-math.pi/4)):
-                            p_vel_angle = p_vel_angle + (math.pi*2)
-                        
-                        
-                        angle_diff = new_theta - p_vel_angle
-
-                        # self.get_logger().info(f"person: {p.id}, curr point: ({p.curr_pos.x}, {p.curr_pos.y}), considered point: ({point.x}, {point.y}) dist: {dist}, angle_diff: {angle_diff}, new theta: {new_theta}, old theta: {p_vel_angle}")
-
-                        if(dist <= self.max_dist_for_person) and (abs(angle_diff) <= self.max_angle_diff) and ((closest_point == None) or (abs(angle_diff) <= closest_angle)):#(dist < closest_dist)): #TODO: Maybe remove closest dist requirement??
-                            closest_point = point 
-                            closest_angle = abs(angle_diff)
-                    if(closest_point == None):
+                    if self.missed_counts[p.id] <= self.max_missed_frames:
                         p.updatePos(p.curr_pos)
                     else:
-                        p.updatePos(closest_point)
-                        temp_points.remove(closest_point)
-                        assigned_groups.append(closest_point)
-
-            
-            if(len(assigned_groups) < len(grouped_points)): #Handles new people
-                for group in grouped_points:
-                    if not (group in assigned_groups):
-                        self.get_logger().info(f"Creating new person with {self.curr_id} id for point ({group.x}, {group.y})") #TODO: REMOVE
-                        self.people.append(Person(self.curr_id, group))
-                        self.curr_id += 1
-                        assigned_groups.append(group)
+                        self.get_logger().info(f"Removing person {p.id} (missed {self.missed_counts[p.id]} frames)")
+                        self.people.remove(p)
+                        del self.missed_counts[p.id]
+                else:
+                    self.missed_counts[p.id] = 0
 
 
         #clear marker array and repopulate it
@@ -230,13 +194,13 @@ class Sim_Marker(Node):
 
         marker.pose.position.x = 0.0
         marker.pose.position.y = 0.0
-        marker.pose.position.z = 0.0
+        marker.pose.position.z = 0.01
         marker.pose.orientation.x = 0.0
         marker.pose.orientation.y = 0.0
         marker.pose.orientation.z = 0.0
         marker.pose.orientation.w = 1.0
 
-        marker.scale.x = 0.01
+        marker.scale.x = 0.03
         marker.scale.y = 0.01
         marker.scale.z = 0.0
 
@@ -257,6 +221,7 @@ class Sim_Marker(Node):
         marker.points = person.pos
 
         marker.lifetime.sec = 0
+        marker.lifetime.nanosec = 0
 
         self.marker_arr.append(marker)
 
