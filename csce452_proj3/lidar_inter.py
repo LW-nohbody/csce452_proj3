@@ -10,9 +10,6 @@ from sklearn.cluster import DBSCAN
 from sklearn.neighbors import NearestNeighbors
 
 
-#TODO: Determine the sections from the LIDAR that are dynamic
-    #NOTE: Can separate dynamic sections by comparing with a static map taken as initial measurement
-    #NOTE: Update the past range as a rolling avg? (need to deal with flickering wall values)
 class Lidar_Inter(Node):
     def __init__(self):
         super().__init__('interface')
@@ -23,19 +20,13 @@ class Lidar_Inter(Node):
         self.twice_past_range: list[list[float]] = [] #DEBUG: REMOVE maybe
         self.original_range: list[list[float]] = []
 
-        #NOTE: Old values, keeping for testing purposes
-        # self.move_threshold = 0.05 #m
-        # self.eps = 0.75
-        # self.points_for_group = 5 #T
-        # self.group_threshold = 10 #Min size of group to count as a person
         self.move_threshold = 0.05 #how much a point needs to move from previous position to be considered a change
         self.eps = 0.3
-        self.points_for_group = 4 #TODO: fine tune, keep high to cut out noise, low enough so we get all people movement (has issue when far from lidar)
+        self.points_for_group = 4 
         self.group_threshold = 5 #Min size of group to count as a person
 
     
     def pointPub(self, point_to_pub:list[Point]):
-        self.get_logger().info("Publishing different points")
         pose_arr:list[Pose] = []
         for point in point_to_pub:
             pose_arr.append(Pose(position=point))
@@ -57,7 +48,6 @@ class Lidar_Inter(Node):
             theta = min_angle + angle_step*i
             self.lidar_ranges.append(polarToCartesian(r, theta))
         
-        #TODO: filter out the stationary points
         if(self.twice_past_range == []):
             self.twice_past_range = self.past_lidar_range[:]
             self.past_lidar_range = self.lidar_ranges[:]
@@ -75,8 +65,6 @@ class Lidar_Inter(Node):
             return 
         else:
             diff_points: list[list [float]] = []
-
-            #TODO: Some noise points are showing up in differences
 
             for i in range(min(len(self.lidar_ranges), len(self.past_lidar_range))):
                 if(self.lidar_ranges[i] == None): continue
@@ -103,7 +91,6 @@ class Lidar_Inter(Node):
                     if(self.lidar_ranges[i] == None): self.get_logger().info("ERROR: Appending NONE value")
                     elif(self.lidar_ranges[i][0] == float('nan')): self.get_logger().info("ERROR: contains NONE value")
                     diff_points.append(self.lidar_ranges[i])
-            self.get_logger().info(f"got diffs, {len(diff_points)}") #TODO: Remove
             self.twice_past_range = self.past_lidar_range[:] 
             self.past_lidar_range = self.lidar_ranges[:]
             
@@ -127,27 +114,7 @@ class Lidar_Inter(Node):
         db = DBSCAN(eps=self.eps, min_samples=self.points_for_group)
         fitted_list = db.fit(list_np)
         
-        seen_groups = {}
-        group_sums = {}
-        group_points: list[Point] = []
-        labels, count = np.unique(fitted_list.labels_, return_counts=True)
-        label_count = dict(zip(labels, count))
-
-        # for i in range(len(points)):
-        #     label = fitted_list.labels_[i]
-        #     num_occurences = np.sum(fitted_list.labels_ == label)
-
-        #     if(label == -1): continue #noise
-        #     elif (seen_groups.get(label) == None) and (num_occurences >= max(2, self.group_threshold - 1)): #First time seeing this group and group is of large enough size
-        #         seen_groups.update({label: True})
-        #         # group_points.append(points[i])
-        #         temp_point = Point(x=points[i].x, y=points[i].y)
-        #         group_sums.update({label: temp_point})
-        #     elif(seen_groups.get(label) == True):
-        #         prev_point = group_sums.get(label)
-                
-        #         temp_point = Point(x=(points[i].x + prev_point.x), y=(points[i].y + prev_point.y))
-        #         group_sums[label] = temp_point
+        group_points: list[Point] = [] 
         
         filtered_group_points = []
 
@@ -172,18 +139,9 @@ class Lidar_Inter(Node):
 
         group_points = filtered_group_points
 
-        # for label in group_sums:
-        #     prev_point = group_sums.get(label)
-        #     counts = label_count.get(label)
-        #     temp_point = Point(x=(prev_point.x/counts), y=(prev_point.y/counts))
-        #     group_sums[label] = temp_point
-        #     group_points.append(temp_point)
         
         self.last_groups = group_points[:]
         
-        self.get_logger().info(f"num groups: {len(group_points)}")
-        for point in group_points:
-            self.get_logger().info(f"Point: ({point.x}, {point.y})") #TODO: REMOVE
         
         return group_points
 

@@ -109,29 +109,10 @@ class Sim_Marker(Node):
         # Handles first seen case
         if(self.people == []):
             for group in grouped_points:
-                self.get_logger().info(f"Creating new person with id: {self.curr_id} for point ({group.x}, {group.y})") #TODO:REMOVE
                 self.people.append(Person(self.curr_id, group))
                 self.curr_id += 1
         else:
-            #Find the person closest to each group and assign it to them
-            # temp_people = self.people[:]
-            # assigned_groups: list[Point] = []
-            # for group in grouped_points:
-            #     closest_p = None
-            #     closest_dist = -1
-            #     for p in temp_people:
-            #         dist_to_point = getDist(group, p.curr_pos)
-            #         is_close_to_point = dist_to_point <= self.max_dist_for_person
-            #         if closest_dist == -1 and is_close_to_point:
-            #             closest_p = p
-            #             closest_dist = getDist(group, p.curr_pos)
-            #         elif (getDist(group, p.curr_pos) < closest_dist) and is_close_to_point:
-            #             closest_p = p 
-            #             closest_dist = getDist(group, p.curr_pos)
-            #     if(closest_p == None): continue
-            #     temp_people.remove(closest_p)
-            #     p.updatePos(group)
-            #     assigned_groups.append(group)
+            
             # --- minimal, points-first association ---
             temp_people = self.people[:]
             assigned_groups: list[Point] = []
@@ -157,13 +138,11 @@ class Sim_Marker(Node):
                     # assigned_groups.append(point)
                     point_assignments[best_p] = point
                 else:
-                    self.get_logger().info(f"Creating new person {self.curr_id} and assigning point ({point.x}, {point.y})")
                     self.people.append(Person(self.curr_id, point))
                     self.curr_id += 1
                     # assigned_groups.append(point)
             for p in point_assignments:
                 if(point_assignments[p].x != float('inf')):
-                    self.get_logger().info(f"Assigning person {p.id} with point ({point_assignments[p].x}, {point_assignments[p].y})")
                     p.updatePos(point_assignments[p])
                     assigned_groups.append(point_assignments[p])
             # Merge close people (if person within 0.4 of another remove one that has existed for less time)
@@ -173,7 +152,6 @@ class Sim_Marker(Node):
                     if i >= j: 
                         continue
                     if getDist(p1.curr_pos, p2.curr_pos) < 0.5:
-                        self.get_logger().info(f"Combining persons {p1.id} and {p2.id}")
                         if len(p1.pos) >= len(p2.pos) and len(p2.pos) <= 3:
                             self.people.remove(p2)
                         elif len(p1.pos) < len(p2.pos) and len(p1.pos) <= 3:
@@ -235,7 +213,7 @@ class Sim_Marker(Node):
                             )
 
                     else:
-                        self.get_logger().info(f"Removing person {p.id} (missed {self.missed_counts[p.id]} frames)")
+                        # self.get_logger().info(f"Removing person {p.id} (missed {self.missed_counts[p.id]} frames)")
                         self.people.remove(p)
                         del self.missed_counts[p.id]
                 else:
@@ -273,7 +251,6 @@ class Sim_Marker(Node):
         marker.scale.y = 0.01
         marker.scale.z = 0.0
 
-        id_mod_4 = person.id % 4
         marker.color.r = 0.0
         marker.color.g = 0.0
         marker.color.b = 0.0
@@ -281,15 +258,7 @@ class Sim_Marker(Node):
         marker.color.r = person.id%3 / 3
         marker.color.g = person.id%5 / 5
         marker.color.b = person.id%7 / 7
-        # if(id_mod_4 == 0):
-        #     marker.color.r = 1.0
-        # elif(id_mod_4 == 1):
-        #     marker.color.g = 1.0
-        # elif(id_mod_4 == 2):
-        #     marker.color.b = 1.0
-        # elif(id_mod_4 == 3):
-        #     marker.color.g = 1.0
-        #     marker.color.b = 1.0
+    
         marker.points = person.pos
 
         marker.lifetime.sec = 0
