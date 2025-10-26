@@ -29,9 +29,9 @@ class Lidar_Inter(Node):
         # self.points_for_group = 5 #T
         # self.group_threshold = 10 #Min size of group to count as a person
         self.move_threshold = 0.05 #how much a point needs to move from previous position to be considered a change
-        self.eps = 0.45
+        self.eps = 0.3
         self.points_for_group = 4 #TODO: fine tune, keep high to cut out noise, low enough so we get all people movement (has issue when far from lidar)
-        self.group_threshold = 4 #Min size of group to count as a person
+        self.group_threshold = 5 #Min size of group to count as a person
 
     
     def pointPub(self, point_to_pub:list[Point]):
@@ -96,7 +96,7 @@ class Lidar_Inter(Node):
                 else:
                     change_from_orig = math.sqrt((self.lidar_ranges[i][0] - self.original_range[i][0])**2 + (self.lidar_ranges[i][1] - self.original_range[i][1])**2) - self.move_threshold
                 
-                is_new_value = (abs(dist) > self.move_threshold) and (abs(dist_2) > self.move_threshold) and (change_from_orig >= self.move_threshold) #Has point moved further than the threshold distance and is closer than the previous point on that line?
+                is_new_value = (abs(dist) > self.move_threshold) and (abs(dist_2) > self.move_threshold) and (change_from_orig >= (self.move_threshold*1.5)) #Has point moved further than the threshold distance and is closer than the previous point on that line?
                 if abs(dist) < 0.02 and abs(dist_2) < 0.02:
                     continue
                 if(is_new_value):

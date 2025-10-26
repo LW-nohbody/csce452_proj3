@@ -85,9 +85,9 @@ class Sim_Marker(Node):
         self.still_people_count: dict[Person:int] = {}
         self.stationary_threshold = 10
         self.curr_id = 0
-        self.max_dist_for_person = 1.0
+        self.max_dist_for_person = 0.9
         self.missed_counts = {}
-        self.max_missed_frames = 10
+        self.max_missed_frames = 15
 
         self.max_angle_diff = math.pi/3 # max angle a point can change from a person's previous path
         self.movement_threshold = 0.03
@@ -172,7 +172,7 @@ class Sim_Marker(Node):
                 for j, p2 in enumerate(self.people):
                     if i >= j: 
                         continue
-                    if getDist(p1.curr_pos, p2.curr_pos) < 0.4:
+                    if getDist(p1.curr_pos, p2.curr_pos) < 0.5:
                         self.get_logger().info(f"Combining persons {p1.id} and {p2.id}")
                         if len(p1.pos) >= len(p2.pos) and len(p2.pos) <= 3:
                             self.people.remove(p2)
