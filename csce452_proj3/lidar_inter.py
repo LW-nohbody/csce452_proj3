@@ -29,7 +29,7 @@ class Lidar_Inter(Node):
         # self.points_for_group = 5 #T
         # self.group_threshold = 10 #Min size of group to count as a person
         self.move_threshold = 0.05 #how much a point needs to move from previous position to be considered a change
-        self.eps = 0.3
+        self.eps = 0.45
         self.points_for_group = 4 #TODO: fine tune, keep high to cut out noise, low enough so we get all people movement (has issue when far from lidar)
         self.group_threshold = 4 #Min size of group to count as a person
 
@@ -104,8 +104,6 @@ class Lidar_Inter(Node):
                     elif(self.lidar_ranges[i][0] == float('nan')): self.get_logger().info("ERROR: contains NONE value")
                     diff_points.append(self.lidar_ranges[i])
             self.get_logger().info(f"got diffs, {len(diff_points)}") #TODO: Remove
-            for diff in diff_points:
-                self.get_logger().info(f"Difference: ({diff[0]}, {diff[1]})") #TODO:REMOVE
             self.twice_past_range = self.past_lidar_range[:] 
             self.past_lidar_range = self.lidar_ranges[:]
             
@@ -128,7 +126,6 @@ class Lidar_Inter(Node):
         list_np = np.array(temp_list)
         db = DBSCAN(eps=self.eps, min_samples=self.points_for_group)
         fitted_list = db.fit(list_np)
-        #NOTE: fitted_list.labels_ will give me a list with the associated labels for each point
         
         seen_groups = {}
         group_sums = {}
@@ -136,28 +133,28 @@ class Lidar_Inter(Node):
         labels, count = np.unique(fitted_list.labels_, return_counts=True)
         label_count = dict(zip(labels, count))
 
-        for i in range(len(points)):
-            label = fitted_list.labels_[i]
-            num_occurences = np.sum(fitted_list.labels_ == label)
+        # for i in range(len(points)):
+        #     label = fitted_list.labels_[i]
+        #     num_occurences = np.sum(fitted_list.labels_ == label)
 
-            if(label == -1): continue #noise
-            elif (seen_groups.get(label) == None) and (num_occurences >= max(2, self.group_threshold - 1)): #First time seeing this group and group is of large enough size
-                seen_groups.update({label: True})
-                # group_points.append(points[i])
-                temp_point = Point(x=points[i].x, y=points[i].y)
-                group_sums.update({label: temp_point})
-            elif(seen_groups.get(label) == True):
-                prev_point = group_sums.get(label)
+        #     if(label == -1): continue #noise
+        #     elif (seen_groups.get(label) == None) and (num_occurences >= max(2, self.group_threshold - 1)): #First time seeing this group and group is of large enough size
+        #         seen_groups.update({label: True})
+        #         # group_points.append(points[i])
+        #         temp_point = Point(x=points[i].x, y=points[i].y)
+        #         group_sums.update({label: temp_point})
+        #     elif(seen_groups.get(label) == True):
+        #         prev_point = group_sums.get(label)
                 
-                temp_point = Point(x=(points[i].x + prev_point.x), y=(points[i].y + prev_point.y))
-                group_sums[label] = temp_point
+        #         temp_point = Point(x=(points[i].x + prev_point.x), y=(points[i].y + prev_point.y))
+        #         group_sums[label] = temp_point
         
         filtered_group_points = []
 
         for label in np.unique(fitted_list.labels_):
             if label == -1: continue
             cluster_points = [points[i] for i in range(len(points)) if fitted_list.labels_[i] == label]
-            if len(cluster_points) < self.points_for_group: continue
+            if len(cluster_points) < self.group_threshold: continue
 
             cx = sum(p.x for p in cluster_points) / len(cluster_points)
             cy = sum(p.y for p in cluster_points) / len(cluster_points)
@@ -175,12 +172,12 @@ class Lidar_Inter(Node):
 
         group_points = filtered_group_points
 
-        for label in group_sums:
-            prev_point = group_sums.get(label)
-            counts = label_count.get(label)
-            temp_point = Point(x=(prev_point.x/counts), y=(prev_point.y/counts))
-            group_sums[label] = temp_point
-            group_points.append(temp_point)
+        # for label in group_sums:
+        #     prev_point = group_sums.get(label)
+        #     counts = label_count.get(label)
+        #     temp_point = Point(x=(prev_point.x/counts), y=(prev_point.y/counts))
+        #     group_sums[label] = temp_point
+        #     group_points.append(temp_point)
         
         self.last_groups = group_points[:]
         

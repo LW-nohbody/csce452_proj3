@@ -85,12 +85,11 @@ class Sim_Marker(Node):
         self.still_people_count: dict[Person:int] = {}
         self.stationary_threshold = 10
         self.curr_id = 0
-        self.max_dist_for_person = 0.9
+        self.max_dist_for_person = 1.0
         self.missed_counts = {}
         self.max_missed_frames = 10
 
-        #TODO: find max_angle_diff to use that limits the choices for a point without splitting a person
-        self.max_angle_diff = math.pi*2 # max angle a point can change from a person's previous path
+        self.max_angle_diff = math.pi/3 # max angle a point can change from a person's previous path
         self.movement_threshold = 0.03
     
     def publishMarkers(self):
@@ -136,28 +135,37 @@ class Sim_Marker(Node):
             # --- minimal, points-first association ---
             temp_people = self.people[:]
             assigned_groups: list[Point] = []
+            point_assignments: dict[Person: Point] = {p: Point(x=float('inf'), y=float('inf')) for p in self.people}
 
             for point in grouped_points:
                 best_p = None
                 best_d = float('inf')
                 for p in temp_people:
                     pred = p.predictPos(dt=1)
+                    best_d_seen = getDist(pred, point_assignments[p])
                     d = getDist(point, pred)
 
                     speed, _ = p.getVel()
                     dynamic_gate = self.max_dist_for_person + min(1.0, 0.8 * speed)
 
-                    if d <= dynamic_gate and d < best_d:
+                    if d <= dynamic_gate and d < best_d and d < best_d_seen:
                         best_d = d
                         best_p = p
 
                 if best_p is not None:
-                    best_p.updatePos(point)
-                    assigned_groups.append(point)
+                    # best_p.updatePos(point)
+                    # assigned_groups.append(point)
+                    point_assignments[best_p] = point
                 else:
+                    self.get_logger().info(f"Creating new person {self.curr_id} and assigning point ({point.x}, {point.y})")
                     self.people.append(Person(self.curr_id, point))
                     self.curr_id += 1
                     # assigned_groups.append(point)
+            for p in point_assignments:
+                if(point_assignments[p].x != float('inf')):
+                    self.get_logger().info(f"Assigning person {p.id} with point ({point_assignments[p].x}, {point_assignments[p].y})")
+                    p.updatePos(point_assignments[p])
+                    assigned_groups.append(point_assignments[p])
             # Merge close people (if person within 0.4 of another remove one that has existed for less time)
             merged = []
             for i, p1 in enumerate(self.people):
@@ -165,9 +173,10 @@ class Sim_Marker(Node):
                     if i >= j: 
                         continue
                     if getDist(p1.curr_pos, p2.curr_pos) < 0.4:
-                        if len(p1.pos) >= len(p2.pos):
+                        self.get_logger().info(f"Combining persons {p1.id} and {p2.id}")
+                        if len(p1.pos) >= len(p2.pos) and len(p2.pos) <= 3:
                             self.people.remove(p2)
-                        else:
+                        elif len(p1.pos) < len(p2.pos) and len(p1.pos) <= 3:
                             self.people.remove(p1)
                         break
 
@@ -184,14 +193,14 @@ class Sim_Marker(Node):
                     reattached = False
                     for pt in unmatched_points:
                         d = getDist(pt, p.curr_pos)
-                        if d < self.max_dist_for_person * 1.1: #If point within certain distance and in-line with prev velocity assign to person
+                        if d < self.max_dist_for_person * 1.5: #If point within certain distance and in-line with prev velocity assign to person
                             vel_r, vel_theta = p.getVel()
                             if vel_r == 0:
                                 angle_ok = True
                             else:
                                 pred_dir = math.atan2(pt.y - p.curr_pos.y, pt.x - p.curr_pos.x)
                                 angle_diff = abs((vel_theta - pred_dir + math.pi) % (2 * math.pi) - math.pi)
-                                angle_ok = angle_diff < (math.pi / 6)
+                                angle_ok = angle_diff < self.max_angle_diff
 
                             if angle_ok:
                                 p.updatePos(pt)
